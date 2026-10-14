@@ -5,3 +5,5 @@ __pycache__/
 *.egg-info/
 .cache/
 docs/
+.qtcreator/
+.pytest_cache/
