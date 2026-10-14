@@ -1,0 +1,280 @@
+# slammap2heatmap configuration.
+# Every value below is the default; delete any you do not want to change.
+#   ./run heatmap map.msg --config this-file.yaml
+
+# Deriving landmark quality from the raw map.
+map:
+  # Landmarks closer together than this, that also look alike, are treated as
+  # one physical feature. These maps have no loop closure, so landmark fusion
+  # never ran and each station created its own copy of the same corner; 27-40%
+  # of landmarks in the DFL scans are duplicates.
+  duplicate_radius_m: 0.05
+
+  # Descriptor distance, in bits out of 256, under which two co-located
+  # landmarks count as the same feature.
+  duplicate_hamming: 80
+
+  # Look-alikes nearer than this are ignored when scoring ambiguity: they are
+  # either the same feature or so close that matching the wrong one costs
+  # centimetres.
+  confusion_min_m: 0.3
+
+  # Look-alikes further than this are ignored too: they never land in the same
+  # search window during tracking.
+  confusion_max_m: 3.0
+
+  # How many spatial neighbours a descriptor is compared against when judging
+  # how distinctive it is.
+  desc_neighbours: 32
+
+  # Keyframes whose camera centres lie within this distance of each other
+  # count as one viewpoint. Panoramic scans place 4-8 keyframes at exactly the
+  # same spot; a hand-held or robot run drops one every few centimetres.
+  # Either way, nearby keyframes see the same landmarks and fail together, so
+  # they are pooled -- for repeatability, and for the number of independent
+  # chances relocalization gets. Scan stations in the maps tested so far are
+  # never closer than 0.69 m.
+  viewpoint_radius_m: 0.5
+
+  # Only used when the map carries real n_vis / n_fnd counters, which maps
+  # from an ordinary stella run do and scan-built maps do not. A landmark
+  # found less than this share of the times it was predicted visible is
+  # down-weighted in proportion. stella itself culls new landmarks below 0.25.
+  found_ratio_full: 0.5
+
+  # If the detected gravity direction lies within this angle of a coordinate
+  # axis, snap to the axis exactly. Scan-built maps are gravity-aligned
+  # already; a hand-held run's world frame is its first camera, tilted however
+  # the camera was held, and is used as measured.
+  up_snap_deg: 2.0
+
+  # A landmark reprojecting further than this from its own keypoint
+  # contradicts the keyframe that saw it, and is excluded. About 0.2% of
+  # landmarks per DFL map.
+  outlier_reproj_px: 20.0
+
+# Recovering the floor plan.
+occupancy:
+  # Angular width of one synthetic scan beam. Each keyframe's landmarks are
+  # collapsed into one range per bearing before carving, which is what makes
+  # the result a floor plan rather than a starburst.
+  scan_bin_deg: 0.75
+
+  # Observations a beam needs before its range is trusted. Directions with
+  # fewer produce no evidence at all, which is what stops sparse far returns
+  # carving phantom corridors out through windows.
+  scan_min_hits: 3
+
+  # Which return in a beam is taken as the range to structure. Not the
+  # minimum, or one stray near point walls off an open direction; leans nearer
+  # than the median, because a beam through a doorway collects both the frame
+  # and the room beyond.
+  scan_percentile: 40.0
+
+  # Metres below camera height where a landmark still counts as wall. The band
+  # is anchored to the camera, which is known exactly, rather than the floor,
+  # which has to be estimated.
+  wall_band_below_m: 1.2
+
+  # Metres above camera height where a landmark still counts as wall. Keeps
+  # ceiling points from filling the plan with solid roof.
+  wall_band_above_m: 0.6
+
+  # How far a sightline is trusted when carving free space.
+  max_ray_m: 12.0
+
+  # How many distinct sightlines must cross a cell before it counts as open
+  # floor. One ray crossing a cell is not evidence of a room.
+  min_free_passes: 3
+
+  # Evidence added to each cell a sightline passes through.
+  log_odds_free: -0.45
+
+  # Evidence added to the cell a sightline ends in.
+  log_odds_occupied: 1.4
+
+  # Bound on accumulated evidence, so early readings stay revisable.
+  log_odds_clamp: 8.0
+
+  # Evidence above which a cell is called a wall.
+  occupied_threshold: 0.5
+
+# Sweeping sightlines from every cell.
+visibility:
+  # Bearing bins in the per-cell sweep. 120 is three degrees each.
+  n_bearings: 120
+
+  # How far a sightline is traced before it is treated as unobstructed.
+  max_range_m: 20.0
+
+# Staying locked on, given you already know roughly where you are.
+tracking:
+  # cos(60 deg): stella's limit on the angle between the viewing ray and a
+  # landmark's mean observation normal. ORB cannot match a surface seen from
+  # the far side.
+  view_cone_cos: 0.5
+
+  # Slack below the ORB pyramid distance band.
+  scale_margin_lo: 0.8
+
+  # Slack above the ORB pyramid distance band.
+  scale_margin_hi: 1.2
+
+  # Weighted landmark count at which tracking is judged even odds. stella
+  # loses tracking below roughly 20 matched points and is comfortable above
+  # 100.
+  n_tracked_marginal: 30.0
+
+  # How sharply the tracking probability turns over around that count.
+  track_sharpness: 2.2
+
+  # Keypoint localisation noise at pyramid level 0, in pixels.
+  pixel_noise_px: 1.0
+
+  # Position error of one map point, per axis, in metres. 0 means measure it
+  # from the map: two copies of the same corner placed independently from
+  # different viewpoints disagree by about 2.2x the per-axis error. The DFL
+  # scans measure 30-40 mm. Replaces the old rgbd_depth_coeff * d^2, which was
+  # a depth-camera model with the wrong shape for a scan-built or rendered
+  # map.
+  landmark_sigma_m: 0.0
+
+  # Systematic position error that no number of landmarks averages away: the
+  # map's own offset from the world, and errors shared by every point rendered
+  # from the same view. Added in quadrature. 1 cm is what the first real-run
+  # check measured (1.1-1.4 cm map-to-scan offset); `validate-runs` refits it.
+  sigma_floor_m: 0.022
+
+  # Multiplier on the geometric part of the position uncertainty, for keypoint
+  # noise on real images exceeding pixel_noise_px. Fitted by `validate-runs`.
+  sigma_scale: 0.0
+
+  # Calibration of the tracking probability: p -> sigmoid(a * logit(p) + b).
+  # The identity (a=1, b=0) until fitted on real runs by `validate-runs`,
+  # which uses frames that were already tracking -- the question this layer
+  # answers -- not every frame.
+  calib_a: 1.149144191504653
+
+  # See calib_a.
+  calib_b: 0.15639783841592253
+
+  # What 'keeps its lock' means: tracking survives this many seconds.
+  # `validate-runs` labels real frames the same way.
+  horizon_s: 1.0
+
+  # Position uncertainty below which geometry is not the limiting factor. This
+  # term exists to catch degenerate arrangements, such as a flat wall of
+  # points at uniform depth, not to re-rank cells that are already fine.
+  sigma_pos_good_m: 0.05
+
+  # Cap, so degenerate geometry does not produce meaningless numbers.
+  sigma_pos_max_m: 10.0
+
+  # Resolution of the internal bearing histogram, before the field-of-view
+  # convolution that turns it into per-heading counts.
+  bearing_bins: 360
+
+# Finding yourself from nothing.
+relocalization:
+  # Fraction of co-visible landmarks that survive bag-of-words matching when a
+  # *real camera* frame is matched against the map. The default 0.7 is the
+  # self-match value -- the map's own keyframe images against the map, which
+  # `validate` checks -- so it is an upper bound. Real frames against a
+  # rendered or scan-built map match far worse; `validate-runs` fits the real
+  # value from lost stretches in real runs, and that fitted value is the one
+  # to trust.
+  bow_match_yield: 0.223872113856834
+
+  # stella's Relocalizer.min_num_bow_matches: BoW matches needed before it
+  # attempts a pose. 20 is stella's default; pass --stella-config to use the
+  # value your deployment actually runs with.
+  min_bow_matches: 15.0
+
+  # stella's Relocalizer.min_num_valid_obs: landmarks that must survive pose
+  # refinement, after projection matching against the candidate keyframe has
+  # added more. A separate gate from the BoW one. 50 is stella's default;
+  # deployments often lower it.
+  min_valid_obs: 20.0
+
+  # Time budget for 'finds itself' in the combined layer. stella attempts
+  # relocalization on every frame while lost, so a small chance per attempt
+  # still adds up: 1.4 % per frame at 30 fps is about 88 % within 5 s.
+  # Attempts are treated as independent, which is optimistic for a camera held
+  # still.
+  find_within_s: 5.0
+
+  # How chances at several scan stations combine: 'max' (the best one) or
+  # 'independent' (1 - prod(1 - p)). The first real-run check showed
+  # candidates fail together -- the same frame, the same image quality -- so
+  # 'independent' inflated the probability.
+  pooling: max
+
+  # Stations considered when pooling is 'independent'.
+  candidates: 3
+
+  # Out-of-plane viewpoint change ORB tolerates without penalty. In-plane
+  # rotation costs nothing, as keypoint orientation is stored.
+  viewpoint_full_deg: 30.0
+
+  # Viewpoint change beyond which descriptor matching fails outright.
+  viewpoint_dead_deg: 60.0
+
+  # Ratio of viewing distances at which matching is down-weighted by 1/e. A
+  # wall seen from 2 m and from 6 m yields descriptors at different pyramid
+  # levels.
+  scale_tolerance: 1.5
+
+# Planning where to scan next.
+suggest:
+  # How far a new station is assumed to help at all.
+  reach_m: 5.0
+
+  # Resolution of the measured effectiveness-versus-distance curve.
+  decay_step_m: 0.25
+
+  # Score a cell must reach before it stops counting as a deficit.
+  target_score: 0.5
+
+  # How a cell's headings collapse when planning: max, mean or min. 'max' asks
+  # whether there is any direction that works, which is the right question for
+  # scan planning and the only one these maps can answer -- min-over-headings
+  # is about 0.02 everywhere.
+  aggregate: max
+
+# What counts as passing.
+checks:
+  # Median reprojection error above which the pose convention is suspect and
+  # the map is refused. A wrong convention produces hundreds of pixels; a
+  # normal bundle-adjusted stella map sits at 1-4 px, and scan-built maps
+  # below 1 px.
+  reproj_tolerance_px: 5.0
+
+  # Median depth disagreement, as a fraction of range, above which the stored
+  # depths are suspect. Relative, because a fixed tolerance rejects good maps
+  # that happen to be large. Skipped for monocular maps, which store no depth.
+  depth_tolerance_rel: 0.02
+
+  # Share of observations allowed to sit behind their own camera. Never zero:
+  # every DFL map carries a handful of badly placed landmarks.
+  behind_tolerance: 0.001
+
+  # Landmarks a keyframe must hold before its own pose is a fair test. A scan
+  # pointed at a blank wall genuinely cannot be relocalized against, and
+  # should not be counted as a model failure.
+  rich_view_keypoints: 100
+
+# Where the numbers came from: real runs, or model defaults.
+calibration:
+  # Landmarks stella actually matches per predicted trackable landmark. Turns
+  # n_eff into 'expected matched landmarks' in real units, and sets how many
+  # survive projection matching in relocalization. 1.0 until fitted; the first
+  # real-run check measured 0.89.
+  matched_per_neff: 0.8980676681090018
+
+  # Which parameters were fitted on real runs. Anything not listed is a model
+  # default, and the viewer labels its layer as uncalibrated.
+  fitted: ['landmarks', 'tracking', 'relocalization', 'position']
+
+  # The runs and map the fit came from, and when. Empty when nothing has been
+  # fitted.
+  source: '2026-10-07: DFL_Qualisys_Laserscan_Alignment_dec9_neural.msg against rs_recording_1_localize, rs_recording_2_localize'

@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slammap2heatmap"
+version = "0.3.0"
+description = "Localizability heatmaps from stella_vslam map databases"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "msgpack>=1.0",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pillow>=10.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pyflakes>=3"]
+
+[project.scripts]
+slammap2heatmap = "slammap2heatmap.__main__:main"
+
+[tool.setuptools]
+packages = ["slammap2heatmap"]
+
+[tool.setuptools.package-data]
+# The viewer is an HTML template read at runtime. Without this line an
+# editable install works (it reads the source tree) and every real install --
+# including the Docker image -- crashes on the first `heatmap`.
+slammap2heatmap = ["viewer_template.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

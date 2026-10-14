@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# Run slammap2heatmap in Docker as though it were installed locally.
+#
+#     ./slammap heatmap ~/maps/office.msg -o ~/results --png --open
+#
+# Any path on the command line is made visible inside the container at the
+# same location it has on this machine, so relative and absolute paths mean
+# exactly what you typed. Input maps are mounted read-only; results are
+# written as you, not as root.
+#
+# Plain bash 3.2 on purpose: that is what macOS still ships.
+set -euo pipefail
+
+image="${SLAMMAP_IMAGE:-slammap2heatmap:latest}"
+
+if ! docker image inspect "$image" > /dev/null 2>&1; then
+    echo "slammap: image '$image' not found." >&2
+    echo "  load the shared file:  docker load -i slammap2heatmap-<version>.tar.gz" >&2
+    echo "  or build it:           $(dirname "$0")/build.sh" >&2
+    exit 1
+fi
+
+mounted=()
+mount_args=()
+add_mount() {   # $1 absolute directory, $2 ro|rw
+    local d="$1" m
+    for m in ${mounted[@]+"${mounted[@]}"}; do
+        [[ "$d" == "$m" || "$d" == "$m"/* ]] && return 0
+    done
+    mounted+=("$d")
+    mount_args+=(-v "$d:$d:$2")
+}
+absolute() {    # absolute path of an existing file or directory
+    if [[ -d "$1" ]]; then (cd "$1" && pwd)
+    else echo "$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+    fi
+}
+
+add_mount "$PWD" rw
+
+# Pass everything through, except --open: a browser inside a container
+# cannot reach your screen, so it is honoured here after the run instead.
+args=()
+open_after=0
+out_dir="out"
+prev=""
+for arg in "$@"; do
+    case "$arg" in
+        --open) open_after=1; prev="$arg"; continue ;;
+        --out=*) out_dir="${arg#--out=}"; mkdir -p -- "$out_dir"
+                 add_mount "$(absolute "$out_dir")" rw ;;
+        *)
+            if [[ "$prev" == "-o" || "$prev" == "--out" ]]; then
+                out_dir="$arg"; mkdir -p -- "$out_dir"
+                add_mount "$(absolute "$out_dir")" rw
+            elif [[ -e "$arg" ]]; then
+                abs="$(absolute "$arg")"
+                if [[ -d "$abs" ]]; then add_mount "$abs" ro
+                else add_mount "$(dirname "$abs")" ro; fi
+            fi ;;
+    esac
+    args+=("$arg")
+    prev="$arg"
+done
+
+tty=()
+[[ -t 1 ]] && tty=(-t)
+
+stamp="$(mktemp)"
+trap 'rm -f "$stamp"' EXIT
+
+status=0
+docker run --rm ${tty[@]+"${tty[@]}"} \
+    --user "$(id -u):$(id -g)" \
+    ${mount_args[@]+"${mount_args[@]}"} \
+    -w "$PWD" \
+    "$image" ${args[@]+"${args[@]}"} || status=$?
+
+if [[ $open_after == 1 && $status == 0 ]]; then
+    viewer="$(find "$out_dir" -maxdepth 1 -name '*.html' -newer "$stamp" 2>/dev/null | head -1)"
+    if [[ -n "$viewer" ]]; then
+        if command -v xdg-open > /dev/null; then xdg-open "$viewer" > /dev/null 2>&1 &
+        elif command -v open > /dev/null; then open "$viewer"
+        else echo "open this in a browser: $viewer"; fi
+    fi
+fi
+exit $status

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Entry point.  Two things it takes care of:
+#
+#  * PYTHONPATH is cleared, because a sourced ROS 2 workspace pushes
+#    /opt/ros/... onto sys.path even inside an activated virtualenv, where it
+#    can shadow packages installed in .venv.
+#  * The working directory is left alone, so relative paths on the command
+#    line mean what you typed.  The package is importable regardless because
+#    it is installed into .venv in editable mode.
+set -euo pipefail
+exec env -u PYTHONPATH "$(dirname "$(readlink -f "$0")")/.venv/bin/python" \
+     -m slammap2heatmap "$@"
